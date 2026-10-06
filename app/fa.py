@@ -270,6 +270,87 @@ def fold_header(value: object) -> str:
     return fold(value).replace(" ", "").replace("\u200c", "")
 
 
+MONTHS = (
+    "فروردین",
+    "اردیبهشت",
+    "خرداد",
+    "تیر",
+    "مرداد",
+    "شهریور",
+    "مهر",
+    "آبان",
+    "آذر",
+    "دی",
+    "بهمن",
+    "اسفند",
+)
+_MONTH_ALIASES = {
+    "farvardin": "فروردین",
+    "ordibehesht": "اردیبهشت",
+    "khordad": "خرداد",
+    "tir": "تیر",
+    "mordad": "مرداد",
+    "shahrivar": "شهریور",
+    "mehr": "مهر",
+    "aban": "آبان",
+    "azar": "آذر",
+    "dey": "دی",
+    "day": "دی",
+    "bahman": "بهمن",
+    "esfand": "اسفند",
+}
+
+
+def parse_month(value: object) -> str | None:
+    """Read a Persian month from a cell. Empty cells stay empty."""
+    if is_blank(value):
+        return None
+    if isinstance(value, datetime):
+        _, month, _ = gregorian_to_jalali(value.year, value.month, value.day)
+        return MONTHS[month - 1]
+    if isinstance(value, date):
+        _, month, _ = gregorian_to_jalali(value.year, value.month, value.day)
+        return MONTHS[month - 1]
+    text = display_fa(preview_cell(value))
+    folded = fold(text)
+    compact = folded.replace("ماه", "").strip()
+    for name in MONTHS:
+        if fold(name) == compact:
+            return name
+    for alias, name in _MONTH_ALIASES.items():
+        if alias == compact:
+            return name
+    for name in MONTHS:
+        if len(name) >= 4 and fold(name) in folded:
+            return name
+    digits = re.sub(r"\D", "", fold_digits(text))
+    if re.fullmatch(r"\d{1,2}", digits):
+        number = int(digits)
+        if 1 <= number <= 12:
+            return MONTHS[number - 1]
+    if re.fullmatch(r"\d{4}\d{2}\d{2}", digits) and len(digits) == 8:
+        number = int(digits[4:6])
+        if 1 <= number <= 12:
+            return MONTHS[number - 1]
+    return None
+
+
+def normalize_code(value: object) -> str:
+    """Keep an insurance number as text, including letters, without reversing it."""
+    if is_blank(value):
+        return ""
+    if isinstance(value, float) and value.is_integer():
+        text = str(int(value))
+    elif isinstance(value, int) and not isinstance(value, bool):
+        text = str(value)
+    else:
+        text = fold_digits(preview_cell(value))
+        if re.fullmatch(r"\d+\.0+", text):
+            text = text.split(".")[0]
+    text = display_fa(text)
+    return re.sub(r"\s+", "", text)
+
+
 def suggest_columns(headers: list[str]) -> dict[str, int | None]:
     folded = [fold_header(header) for header in headers]
 
@@ -289,7 +370,7 @@ def suggest_columns(headers: list[str]) -> dict[str, int | None]:
         ("نام خانوادگی", "نامخانوادگی", "فامیل"),
         avoid=("نامونام", "نامکامل", "نامنام"),
     )
-    first_name = find(("نام", "اسم"), avoid=("خانواد", "فامیل", "کامل", "پدر", "مادر"))
+    first_name = find(("نام", "اسم"), avoid=("خانواد", "فامیل", "کامل", "پدر", "مادر", "بیمه"))
     if full_name is not None and first_name == full_name:
         first_name = None
     if full_name is not None and last_name == full_name:
@@ -298,6 +379,10 @@ def suggest_columns(headers: list[str]) -> dict[str, int | None]:
         first_name = None
 
     return {
+        "policyholder": find(("نام بیمه گذار", "بیمه گذار", "بیمهگزار")),
+        "insurance_no": find(("شماره بیمه", "شماره بیمه نامه", "کد بیمه")),
+        "insurance_type": find(("نوع بیمه", "رشته بیمه", "نوع بیمه نامه")),
+        "month": find(("نام ماه", "ماه پرداخت", "ماه"), avoid=("شماره", "مبلغ", "بیمه")),
         "national_id": find(("کد ملی", "کدملی", "شناسه ملی", "شماره ملی", "کد شناسایی")),
         "first_name": first_name,
         "last_name": last_name,

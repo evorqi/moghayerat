@@ -8,14 +8,17 @@ from decimal import Decimal
 
 from app.errors import UserError
 from app.fa import (
+    MONTHS,
     display_fa,
     fa_sort_key,
     is_blank,
     loose_name,
     national_id_is_valid,
+    normalize_code,
     normalize_national_id,
     parse_amount,
     parse_decimal_input,
+    parse_month,
     preview_cell,
     quantize_money,
     safe_label,
@@ -39,6 +42,10 @@ class ColumnMap:
     first_name: int | None = None
     last_name: int | None = None
     full_name: int | None = None
+    policyholder: int | None = None
+    insurance_no: int | None = None
+    insurance_type: int | None = None
+    month: int | None = None
     amount: int | None = None
     amount_due: int | None = None
     amount_paid: int | None = None
@@ -80,9 +87,14 @@ class Person:
     first_name: str = ""
     last_name: str = ""
     full_name: str = ""
+    policyholder: str = ""
+    insurance_no: str = ""
+    insurance_type: str = ""
     due: Decimal = Decimal("0")
     paid: Decimal = Decimal("0")
     by_source: dict[str, Decimal] = field(default_factory=dict)
+    due_months: dict[str, Decimal] = field(default_factory=dict)
+    paid_months: dict[str, Decimal] = field(default_factory=dict)
     notes: list[str] = field(default_factory=list)
     matched_by_name: bool = False
     status: str = ""
@@ -96,6 +108,47 @@ class Person:
         if self.full_name:
             return self.full_name
         return display_fa(f"{self.first_name} {self.last_name}")
+
+    @property
+    def holder_name(self) -> str:
+        return self.policyholder or self.full_display
+
+    def paid_month_list(self) -> list[str]:
+        return [name for name in MONTHS if self.paid_months.get(name, Decimal("0")) > 0]
+
+    def unpaid_month_list(self) -> list[str]:
+        names = []
+        for name in MONTHS:
+            due = self.due_months.get(name, Decimal("0"))
+            paid = self.paid_months.get(name, Decimal("0"))
+            if due > paid:
+                names.append(name)
+        return names
+
+    def discrepancy_text(self) -> str:
+        paid_names = self.paid_month_list()
+        unpaid = self.unpaid_month_list()
+        paid_text = "، ".join(paid_names)
+        unpaid_text = "، ".join(unpaid)
+        if self.balance > 0 and unpaid and len(paid_names) == 1:
+            return f"فقط {paid_names[0]} پرداخت شده و بقیه مانده است"
+        if self.balance > 0 and unpaid and paid_names:
+            return f"پرداخت‌شده: {paid_text}. مانده در: {unpaid_text}"
+        if self.balance > 0 and unpaid:
+            return f"این ماه‌ها پرداخت نشده: {unpaid_text}"
+        if self.balance > 0 and len(paid_names) == 1:
+            return f"فقط {paid_names[0]} پرداخت شده و بقیه مبلغ مانده است"
+        if self.balance > 0 and paid_names:
+            return f"فقط {paid_text} پرداخت شده و بقیه مبلغ مانده است"
+        if self.balance > 0 and self.paid == 0:
+            return "هیچ مبلغی پرداخت نشده و کل مبلغ مانده است"
+        if self.balance > 0:
+            return "بخشی پرداخت شده و مانده دارد"
+        if self.balance < 0:
+            return "بیشتر از مبلغ کل پرداخت شده است"
+        if paid_names:
+            return f"تسویه شده. پرداخت در {paid_text}"
+        return "تسویه شده"
 
 
 @dataclass
@@ -230,12 +283,26 @@ def _headers_of(job: FileJob) -> list[str]:
 
 def _require_identity(job: FileJob, headers: list[str]) -> None:
     columns = job.columns
-    chosen = [columns.national_id, columns.first_name, columns.last_name, columns.full_name]
+    chosen = [
+        columns.national_id,
+        columns.first_name,
+        columns.last_name,
+        columns.full_name,
+        columns.policyholder,
+        columns.insurance_no,
+    ]
     if all(item is None for item in chosen):
-        raise UserError(f"در «{job.label}» حداقل کد ملی یا نام را مشخص کنید.")
+        raise UserError(f"در «{job.label}» حداقل نام بیمه‌گذار، شماره بیمه، کد ملی یا نام را مشخص کنید.")
     for column in chosen:
         _check_index(column, headers, job.label)
-    for column in (columns.amount, columns.amount_due, columns.amount_paid, columns.note):
+    for column in (
+        columns.amount,
+        columns.amount_due,
+        columns.amount_paid,
+        columns.note,
+        columns.insurance_type,
+        columns.month,
+    ):
         _check_index(column, headers, job.label)
     if job.role in {ROLE_DUE, ROLE_PAID} and columns.amount is None:
         raise UserError(f"در «{job.label}» ستون مبلغ را مشخص کنید.")
@@ -333,6 +400,11 @@ def _consume_job(job: FileJob, sources: list[SourceInfo], people: dict[str, Pers
             person.by_source[source.key] = quantize_money(
                 person.by_source.get(source.key, Decimal("0")) + parsed[source.key]
             )
+            if job.columns.month is not None:
+                month_name = parse_month(_cell(row, job.columns.month))
+                if month_name:
+                    book = person.due_months if source.role == ROLE_DUE else person.paid_months
+                    book[month_name] = quantize_money(book.get(month_name, Decimal("0")) + parsed[source.key])
             for item in person_seed.notes:
                 _add_note(person, item)
             source.used_rows += 1
@@ -343,7 +415,7 @@ def _consume_job(job: FileJob, sources: list[SourceInfo], people: dict[str, Pers
 
     if missing_identity:
         warnings.append(
-            f"در «{job.label}»، {to_persian_digits(missing_identity)} ردیف به‌دلیل نداشتن کد ملی و نام وارد محاسبه نشد."
+            f"در «{job.label}»، {to_persian_digits(missing_identity)} ردیف به‌دلیل نداشتن نام یا شماره وارد محاسبه نشد."
         )
     for source in sources:
         lines = bad_by_source[source.key]
@@ -365,18 +437,35 @@ def _cell(row: list, index: int | None):
 def _identity(job: FileJob, row: list) -> tuple[str, Person, bool] | None:
     columns = job.columns
     national_id, id_note = normalize_national_id(_cell(row, columns.national_id))
+    insurance_no = normalize_code(_cell(row, columns.insurance_no)) if columns.insurance_no is not None else ""
+    insurance_type = display_fa(preview_cell(_cell(row, columns.insurance_type))) if columns.insurance_type is not None else ""
+    policyholder = display_fa(preview_cell(_cell(row, columns.policyholder))) if columns.policyholder is not None else ""
     first = display_fa(preview_cell(_cell(row, columns.first_name))) if columns.first_name is not None else ""
     last = display_fa(preview_cell(_cell(row, columns.last_name))) if columns.last_name is not None else ""
     full = display_fa(preview_cell(_cell(row, columns.full_name))) if columns.full_name is not None else ""
+    if policyholder and not full:
+        full = policyholder
     if full and not (first and last):
         guessed_first, guessed_last = split_full_name(full)
         first = first or guessed_first
         last = last or guessed_last
     if not full:
         full = display_fa(f"{first} {last}")
-    person = Person(national_id=national_id, first_name=first, last_name=last, full_name=full)
+    if not policyholder:
+        policyholder = full
+    person = Person(
+        national_id=national_id,
+        first_name=first,
+        last_name=last,
+        full_name=full,
+        policyholder=policyholder,
+        insurance_no=insurance_no,
+        insurance_type=insurance_type,
+    )
     if id_note:
         _add_note(person, id_note)
+    if insurance_no:
+        return f"ins:{loose_name(insurance_no)}", person, False
     if national_id:
         if len(national_id) == 10 and not national_id_is_valid(national_id):
             _add_note(person, "رقم کنترلی کد ملی نادرست است")
@@ -391,7 +480,16 @@ def _merge_identity(person: Person, incoming: Person, role: str) -> None:
         _add_note(person, "کد ملی در فایل‌ها یکسان نیست")
     elif not person.national_id:
         person.national_id = incoming.national_id
+    person.insurance_no = _prefer_text(person.insurance_no, incoming.insurance_no, role)
+    person.insurance_type = _prefer_text(person.insurance_type, incoming.insurance_type, role)
+    person.policyholder = _prefer_text(person.policyholder, incoming.policyholder, role)
     _take_name(person, incoming, role)
+
+
+def _prefer_text(current: str, incoming: str, role: str) -> str:
+    if role == ROLE_DUE and incoming:
+        return incoming
+    return current or incoming
 
 
 def _take_name(person: Person, incoming: Person, role: str) -> None:
@@ -465,6 +563,10 @@ def job_from_payload(item: dict, sheets: dict[str, list[list]], filename: str) -
             first_name=optional("first_name"),
             last_name=optional("last_name"),
             full_name=optional("full_name"),
+            policyholder=optional("policyholder"),
+            insurance_no=optional("insurance_no"),
+            insurance_type=optional("insurance_type"),
+            month=optional("month"),
             amount=optional("amount"),
             amount_due=optional("amount_due"),
             amount_paid=optional("amount_paid"),

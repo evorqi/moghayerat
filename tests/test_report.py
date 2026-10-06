@@ -9,7 +9,7 @@ from openpyxl import load_workbook
 
 from app.demo import sample_people, write_sample_files
 from app.excel_export import build_workbook
-from app.fa import gregorian_to_jalali, national_id_is_valid, parse_amount, with_check_digit
+from app.fa import gregorian_to_jalali, national_id_is_valid, parse_amount, parse_month, with_check_digit
 from app.main import app
 from app.readers import read_tabular
 from app.reconcile import (
@@ -190,19 +190,23 @@ def test_cp1256_csv_roundtrip():
 
 def check_workbook(payload: bytes, national_id: str):
     workbook = load_workbook(io.BytesIO(payload))
-    assert workbook.sheetnames == ["خلاصه", "ریز مغایرت", "موارد مغایر", "جزئیات منابع"]
+    assert workbook.sheetnames == ["خلاصه", "تطبیق و مانده", "مانده ماه‌ها", "جزئیات منابع"]
     for name in workbook.sheetnames:
         assert workbook[name].sheet_view.rightToLeft is True
-    detail = workbook["ریز مغایرت"]
+    detail = workbook["تطبیق و مانده"]
     found = False
-    for row in detail.iter_rows(min_row=4, max_col=6, values_only=False):
-        if row[4].value == national_id:
+    heights = []
+    for row in detail.iter_rows(min_row=4, max_row=detail.max_row - 1, max_col=8, values_only=False):
+        heights.append(detail.row_dimensions[row[0].row].height)
+        if row[3].value == national_id:
             found = True
-            assert row[4].data_type == "s"
-            assert row[1].value == "علی"
-            assert row[2].value == "رضایی"
+            assert row[3].data_type == "s"
+            assert row[1].value == "علی رضایی"
             assert row[1].alignment.readingOrder == 2
+            assert not row[1].alignment.wrap_text
     assert found
+    assert heights
+    assert len(set(heights)) == 1
     assert any(isinstance(cell.value, str) and str(cell.value).startswith("=SUBTOTAL") for cell in detail[detail.max_row])
 
     archive = zipfile.ZipFile(io.BytesIO(payload))
@@ -251,6 +255,43 @@ def test_http_demo_download():
     assert downloaded.status_code == 200
     assert downloaded.content[:2] == b"PK"
     check_workbook(downloaded.content, sample_people()["ali"]["nid"])
+
+
+def test_only_shahrivar_paid_rest_remains():
+    due_rows = [
+        ["نام بیمه‌گذار", "شماره بیمه", "نوع بیمه", "ماه", "مبلغ"],
+        ["لیلا احمدی", "B-100", "عمر", "فروردین", 1000],
+        ["لیلا احمدی", "B-100", "عمر", "اردیبهشت", 1000],
+        ["لیلا احمدی", "B-100", "عمر", "شهریور", 1000],
+    ]
+    paid_rows = [
+        ["نام بیمه‌گذار", "شماره بیمه", "نوع بیمه", "ماه", "مبلغ"],
+        ["لیلا احمدی", "B-100", "عمر", "شهریور", 1000],
+    ]
+    columns = ColumnMap(policyholder=0, insurance_no=1, insurance_type=2, month=3, amount=4)
+    report = reconcile(
+        [
+            FileJob("due", "due.xlsx", "برگ", 1, "حق بیمه", "due", Decimal("1"), columns, due_rows),
+            FileJob("paid", "paid.xlsx", "برگ", 1, "واریز", "paid", Decimal("1"), columns, paid_rows),
+        ],
+        Decimal("0"),
+    )
+    person = report.people[0]
+    assert person.holder_name == "لیلا احمدی"
+    assert person.insurance_no == "B-100"
+    assert person.insurance_type == "عمر"
+    assert person.due == Decimal("3000")
+    assert person.paid == Decimal("1000")
+    assert person.balance == Decimal("2000")
+    assert person.paid_month_list() == ["شهریور"]
+    assert person.unpaid_month_list() == ["فروردین", "اردیبهشت"]
+    assert person.discrepancy_text() == "فقط شهریور پرداخت شده و بقیه مانده است"
+    workbook = load_workbook(io.BytesIO(build_workbook(report)))
+    month_sheet = workbook["مانده ماه‌ها"]
+    months = [row[4].value for row in month_sheet.iter_rows(min_row=4, max_row=5)]
+    assert months == ["فروردین", "اردیبهشت"]
+    assert parse_month("6") == "شهریور"
+    assert parse_month("shahrivar") == "شهریور"
 
 
 def test_missing_role_is_persian_error():

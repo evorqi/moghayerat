@@ -11,6 +11,10 @@ const buildBtn = document.querySelector("#build-btn");
 const toleranceInput = document.querySelector("#tolerance");
 
 const COLUMNS = [
+  ["policyholder", "نام بیمه‌گذار"],
+  ["insurance_no", "شماره بیمه"],
+  ["insurance_type", "نوع بیمه"],
+  ["month", "ماه"],
   ["national_id", "کد ملی"],
   ["first_name", "نام"],
   ["last_name", "نام خانوادگی"],
@@ -137,6 +141,10 @@ function columnsFrom(suggestions) {
     ? col("amount_paid")
     : "";
   return {
+    policyholder: col("policyholder"),
+    insurance_no: col("insurance_no"),
+    insurance_type: col("insurance_type"),
+    month: col("month"),
     national_id: col("national_id"),
     first_name: col("first_name"),
     last_name: col("last_name"),
@@ -202,7 +210,7 @@ function cardHtml(file, index) {
           <input class="num" data-field="factor" inputmode="decimal" value="${esc(file.factor)}">
         </div>
       </div>
-      <p class="help">تشخیص اولیه انجام شده است. قبل از ساخت گزارش، ستون‌ها را با فایل خودتان مقابله کنید. تطبیق اول با کد ملی است و اگر کد ملی نباشد با نام انجام می‌شود.</p>
+      <p class="help">ستون‌ها را با فایل خودتان مقابله کنید. تطبیق با شماره بیمه انجام می‌شود و اگر نباشد با کد ملی یا نام. ستون ماه را بگذارید تا معلوم شود کدام ماه‌ها مانده است.</p>
       <div class="map-grid">
         ${COLUMNS.map(([key, title]) => selectField(key, title, headers, file.columns[key])).join("")}
         ${both ? "" : selectField("amount", "ستون مبلغ", headers, file.columns.amount)}
@@ -322,8 +330,8 @@ async function refreshPreview(file) {
 
 function validate(file) {
   const columns = file.columns;
-  const hasIdentity = ["national_id", "first_name", "last_name", "full_name"].some((key) => columns[key] !== "");
-  if (!hasIdentity) return `در «${file.label || file.filename}» کد ملی یا نام را مشخص کنید.`;
+  const hasIdentity = ["policyholder", "insurance_no", "national_id", "first_name", "last_name", "full_name"].some((key) => columns[key] !== "");
+  if (!hasIdentity) return `در «${file.label || file.filename}» نام بیمه‌گذار، شماره بیمه یا نام را مشخص کنید.`;
   if (file.role === "both") {
     if (columns.amount_due === "" || columns.amount_paid === "") {
       return `در «${file.label || file.filename}» هر دو ستون مبلغ را مشخص کنید.`;
@@ -429,10 +437,10 @@ function renderResult(data) {
       <a class="btn primary" href="${esc(data.download_url)}" download="${esc(data.filename)}">دانلود ${esc(data.filename)}</a>
     </div>
     <div class="stats">
-      <div class="stat"><b class="num">${faDigits(summary.people)}</b><span>نفر در گزارش</span></div>
-      <div class="stat"><b class="num">${money(summary.due_total)}</b><span>جمع قابل‌پرداخت</span></div>
-      <div class="stat"><b class="num">${money(summary.paid_total)}</b><span>جمع پرداخت‌شده</span></div>
-      <div class="stat ${balance > 0 ? "debt" : "ok"}"><b class="num">${money(summary.balance_total)}</b><span>جمع مانده</span></div>
+      <div class="stat"><b class="num">${faDigits(summary.people)}</b><span>بیمه‌گذار</span></div>
+      <div class="stat"><b class="num">${money(summary.due_total)}</b><span>مبلغ کل</span></div>
+      <div class="stat"><b class="num">${money(summary.paid_total)}</b><span>تطبیق پرداخت</span></div>
+      <div class="stat ${balance > 0 ? "debt" : "ok"}"><b class="num">${money(summary.balance_total)}</b><span>مانده</span></div>
     </div>
     <div class="chips">
       <span class="chip">تسویه‌شده: ${faDigits(counts["تسویه‌شده"] || 0)}</span>

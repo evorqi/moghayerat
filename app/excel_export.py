@@ -76,29 +76,27 @@ def build_workbook(report: Report) -> bytes:
     summary.title = "خلاصه"
     _write_summary(summary, report)
 
-    detail_columns = _detail_columns(report)
+    detail_columns = _detail_columns()
     _write_table(
-        workbook.create_sheet("ریز مغایرت"),
-        "ریز مغایرت",
-        "مانده = قابل‌پرداخت − پرداخت‌شده. مانده مثبت یعنی هنوز باید پرداخت شود و مانده منفی یعنی اضافه پرداخت شده است.",
+        workbook.create_sheet("تطبیق و مانده"),
+        "تطبیق و مانده",
+        "مانده یعنی مبلغی که هنوز باید پرداخت شود. اگر فقط بعضی ماه‌ها پرداخت شده باشد، در ستون مغایرت و ماه‌های مانده نوشته می‌شود.",
         detail_columns,
-        _detail_rows(report, report.people),
+        _detail_rows(report.people),
         tab_color=TEAL,
     )
-    exceptions = [person for person in report.people if person.status != STATUS_SETTLED]
-    exceptions.sort(key=lambda person: (-abs(person.balance), person.last_name, person.first_name))
     _write_table(
-        workbook.create_sheet("موارد مغایر"),
-        "موارد مغایر",
-        "فقط کسانی که تسویه نشده‌اند. اگر این برگه خالی است، همهٔ ردیف‌های قابل تطبیق تسویه شده‌اند.",
-        detail_columns,
-        _detail_rows(report, exceptions),
+        workbook.create_sheet("مانده ماه‌ها"),
+        "مانده ماه‌ها",
+        "هر ردیف یک ماه پرداخت‌نشده است. اگر فقط مثلاً شهریور پرداخت شده باشد، بقیه ماه‌ها اینجا می‌آیند.",
+        _month_columns(),
+        _month_rows(report),
         tab_color=RED,
     )
     _write_table(
         workbook.create_sheet("جزئیات منابع"),
         "جزئیات منابع",
-        "سهم هر فایل برای هر شخص، جدا از جمع کل.",
+        "سهم هر فایل برای هر بیمه‌گذار.",
         _audit_columns(),
         _audit_rows(report),
         tab_color="5E6A71",
@@ -150,14 +148,15 @@ def _prepare(worksheet: Worksheet, tab_color: str) -> None:
 def _put(worksheet: Worksheet, row: int, column: int, value, kind: str, fill: PatternFill | None = None, border: Border = THIN):
     cell = worksheet.cell(row, column)
     if kind == "text":
-        text = "" if value is None else str(value)
+        text = "" if value is None else str(value).strip()
         if text[:1] in "=-+@":
             text = "'" + text
-        cell.value = text
-        cell.number_format = "@"
+        cell.value = text or None
+        if text:
+            cell.number_format = "@"
         cell.alignment = _align("right", wrap=column_is_note(value, kind))
     elif kind == "id":
-        text = "" if value is None else str(value)
+        text = "" if value is None else str(value).strip()
         cell.value = text
         cell.number_format = "@"
         cell.alignment = _align("center")
@@ -206,7 +205,7 @@ def _put(worksheet: Worksheet, row: int, column: int, value, kind: str, fill: Pa
 
 
 def column_is_note(value, kind: str) -> bool:
-    return kind == "text" and isinstance(value, str) and len(value) > 28
+    return False
 
 
 def _is_whole(value: Decimal) -> bool:
@@ -262,10 +261,10 @@ def _write_summary(worksheet: Worksheet, report: Report) -> None:
     paid_total = quantize_money(sum((person.paid for person in report.people), Decimal("0")))
     balance = quantize_money(due_total - paid_total)
     metrics = [
-        ("تعداد افراد", len(report.people), "index"),
-        ("جمع قابل‌پرداخت", due_total, "money"),
-        ("جمع پرداخت‌شده", paid_total, "money"),
-        ("جمع مانده", balance, "money"),
+        ("تعداد بیمه‌گذار", len(report.people), "index"),
+        ("مبلغ کل", due_total, "money"),
+        ("تطبیق پرداخت", paid_total, "money"),
+        ("مانده", balance, "money"),
         ("تسویه‌شده", counts[STATUS_SETTLED], "index"),
         ("کسری پرداخت", counts[STATUS_SHORT], "index"),
         ("فاقد پرداخت", counts[STATUS_UNPAID], "index"),
@@ -284,16 +283,10 @@ def _write_summary(worksheet: Worksheet, report: Report) -> None:
     worksheet.merge_cells("E5:I14")
     guide = worksheet["E5"]
     guide.value = (
-        "مانده = مبلغ قابل‌پرداخت − مبلغ پرداخت‌شده.\n"
-        "مانده مثبت یعنی هنوز باید پرداخت شود.\n"
-        "مانده صفر یعنی تسویه انجام شده است.\n"
-        "مانده منفی یعنی بیشتر از مبلغ مقرر پرداخت شده است.\n\n"
-        "برگهٔ «ریز مغایرت» فهرست کامل است و بر اساس نام خانوادگی مرتب شده.\n"
-        "برگهٔ «موارد مغایر» فقط اختلاف‌ها را نشان می‌دهد.\n"
-        "برگهٔ «جزئیات منابع» سهم هر فایل را جدا کرده است.\n\n"
-        "نام‌ها با نویسهٔ فارسی ذخیره شده‌اند و برعکس یا شکسته نوشته نشده‌اند. "
-        "خودِ اکسل، چون برگه راست‌به‌چپ است، حروف را درست می‌چیند. "
-        "مبالغ عدد هستند تا جمع و فیلتر اکسل درست کار کند."
+        "مبلغ کل، مبلغی است که باید پرداخت شود.\n"
+        "تطبیق پرداخت، مبلغی است که واقعاً پرداخت شده.\n"
+        "مانده = مبلغ کل − تطبیق پرداخت. مانده مثبت یعنی هنوز باید پرداخت شود.\n"
+        "برگهٔ «مانده ماه‌ها» نشان می‌دهد هر کس کدام ماه‌ها را نپرداخته است."
     )
     guide.font = _font(11)
     guide.alignment = Alignment(horizontal="right", vertical="top", wrap_text=True, readingOrder=2)
@@ -320,7 +313,7 @@ def _write_summary(worksheet: Worksheet, report: Report) -> None:
         label_cell.fill = _fill(WHITE if offset % 2 == 0 else ZEBRA)
         label_cell.border = THIN
         value_cell = _put(worksheet, row, 2, value, kind, fill=_fill(WHITE if offset % 2 == 0 else ZEBRA))
-        if label == "جمع مانده":
+        if label == "مانده":
             _paint_money_font(value_cell, balance)
         worksheet.row_dimensions[row].height = 22
 
@@ -425,68 +418,85 @@ def _write_summary(worksheet: Worksheet, report: Report) -> None:
     worksheet.sheet_view.showGridLines = False
 
 
-def _detail_columns(report: Report) -> list[tuple[str, str, float]]:
-    columns = [
+def _detail_columns() -> list[tuple[str, str, float]]:
+    return [
         ("ردیف", "index", 8),
-        ("نام", "text", 18),
-        ("نام خانوادگی", "text", 22),
-        ("نام و نام خانوادگی", "text", 28),
+        ("نام بیمه‌گذار", "text", 24),
+        ("شماره بیمه", "id", 18),
         ("کد ملی", "id", 16),
+        ("نوع بیمه", "text", 16),
+        ("مبلغ کل", "money", 16),
+        ("تطبیق پرداخت", "money", 16),
+        ("مانده", "money", 16),
+        ("مغایرت", "text", 42),
+        ("ماه‌های پرداخت‌شده", "text", 28),
+        ("ماه‌های مانده", "text", 36),
     ]
-    for source in report.sources:
-        columns.append((source.title, "money", 24))
-    columns.extend(
-        [
-            ("جمع قابل‌پرداخت", "money", 20),
-            ("جمع پرداخت‌شده", "money", 20),
-            ("مانده", "money", 18),
-            ("درصد تسویه", "percent", 14),
-            ("وضعیت", "status", 22),
-            ("توضیحات", "text", 42),
-        ]
-    )
-    return columns
 
 
-def _detail_rows(report: Report, people: list[Person]) -> list[list[tuple]]:
+def _detail_rows(people: list[Person]) -> list[list[tuple]]:
     rows = []
     for person in people:
-        ratio = None
-        if person.due > 0:
-            ratio = person.paid / person.due
-        values: list[tuple] = [
-            (None, "index"),
-            (person.first_name, "text"),
-            (person.last_name, "text"),
-            (person.full_display, "text"),
-            (person.national_id, "id"),
-        ]
-        for source in report.sources:
-            amount = person.by_source.get(source.key)
-            values.append((amount, "money"))
-        values.extend(
+        rows.append(
             [
+                (None, "index"),
+                (person.holder_name, "text"),
+                (person.insurance_no, "id"),
+                (person.national_id, "id"),
+                (person.insurance_type, "text"),
                 (person.due, "money"),
                 (person.paid, "money"),
                 (person.balance, "money"),
-                (ratio, "percent"),
-                (person.status, "status"),
-                ("؛ ".join(person.notes), "text"),
+                (person.discrepancy_text(), "text"),
+                ("، ".join(person.paid_month_list()), "text"),
+                ("، ".join(person.unpaid_month_list()), "text"),
             ]
         )
-        rows.append(values)
+    return rows
+
+
+def _month_columns() -> list[tuple[str, str, float]]:
+    return [
+        ("ردیف", "index", 8),
+        ("نام بیمه‌گذار", "text", 24),
+        ("شماره بیمه", "id", 18),
+        ("نوع بیمه", "text", 16),
+        ("ماه", "text", 14),
+        ("مبلغ ماه", "money", 16),
+        ("پرداخت‌شده", "money", 16),
+        ("مانده", "money", 16),
+    ]
+
+
+def _month_rows(report: Report) -> list[list[tuple]]:
+    rows = []
+    for person in report.people:
+        for month in person.unpaid_month_list():
+            due = person.due_months.get(month, Decimal("0"))
+            paid = person.paid_months.get(month, Decimal("0"))
+            rows.append(
+                [
+                    (None, "index"),
+                    (person.holder_name, "text"),
+                    (person.insurance_no, "id"),
+                    (person.insurance_type, "text"),
+                    (month, "text"),
+                    (due, "money"),
+                    (paid, "money"),
+                    (quantize_money(due - paid), "money"),
+                ]
+            )
     return rows
 
 
 def _audit_columns() -> list[tuple[str, str, float]]:
     return [
         ("ردیف", "index", 8),
-        ("نام", "text", 18),
-        ("نام خانوادگی", "text", 22),
-        ("کد ملی", "id", 16),
-        ("فهرست", "text", 36),
-        ("نقش", "text", 18),
-        ("مبلغ", "money", 20),
+        ("نام بیمه‌گذار", "text", 24),
+        ("شماره بیمه", "id", 18),
+        ("فهرست", "text", 28),
+        ("نقش", "text", 16),
+        ("مبلغ", "money", 16),
     ]
 
 
@@ -500,10 +510,9 @@ def _audit_rows(report: Report) -> list[list[tuple]]:
             rows.append(
                 [
                     (None, "index"),
-                    (person.first_name, "text"),
-                    (person.last_name, "text"),
-                    (person.national_id, "id"),
-                    (source.title, "text"),
+                    (person.holder_name, "text"),
+                    (person.insurance_no, "id"),
+                    (source.label, "text"),
                     (role, "text"),
                     (person.by_source[source.key], "money"),
                 ]
@@ -537,8 +546,8 @@ def _write_table(
     note_cell = worksheet.cell(2, 1, note)
     note_cell.font = _font(10, False, INK)
     note_cell.fill = _fill("F3E6C8")
-    note_cell.alignment = _align("right", wrap=True)
-    worksheet.row_dimensions[2].height = 32
+    note_cell.alignment = _align("right", wrap=False)
+    worksheet.row_dimensions[2].height = 22
     for column in range(1, last_column + 1):
         worksheet.cell(2, column).fill = _fill("F3E6C8")
 
@@ -547,9 +556,9 @@ def _write_table(
         cell = worksheet.cell(header_row, column, header)
         cell.font = _font(10, True, WHITE)
         cell.fill = _fill(TEAL)
-        cell.alignment = _align("center", wrap=True)
+        cell.alignment = _align("center", wrap=False)
         cell.border = THIN
-    worksheet.row_dimensions[header_row].height = 34
+    worksheet.row_dimensions[header_row].height = 22
     worksheet.freeze_panes = "A4"
     worksheet.auto_filter.ref = f"A{header_row}:{get_column_letter(last_column)}{header_row + max(len(rows), 1)}"
     worksheet.print_title_rows = "1:3"
@@ -562,7 +571,7 @@ def _write_table(
         empty.font = _font(12, True, GREEN)
         empty.alignment = _align("right")
         empty.fill = _fill("E5F4EC")
-        worksheet.row_dimensions[4].height = 28
+        worksheet.row_dimensions[4].height = 22
         return
 
     balance_index = next((index for index, (header, _, _) in enumerate(columns, start=1) if header == "مانده"), None)
@@ -574,7 +583,6 @@ def _write_table(
     for row_offset, values in enumerate(rows):
         row = 4 + row_offset
         fill = _fill(WHITE if row_offset % 2 == 0 else ZEBRA)
-        note_length = 0
         for column, (value, kind) in enumerate(values, start=1):
             written = value
             this_kind = kind
@@ -584,9 +592,7 @@ def _write_table(
             cell = _put(worksheet, row, column, written, this_kind, fill=fill)
             if balance_index == column and isinstance(value, Decimal):
                 _paint_money_font(cell, value)
-            if this_kind == "text" and isinstance(written, str):
-                note_length = max(note_length, len(written))
-        worksheet.row_dimensions[row].height = 36 if note_length > 40 else 22
+        worksheet.row_dimensions[row].height = 22
 
     total_row = 4 + len(rows)
     label = worksheet.cell(total_row, 1, "جمع")
@@ -612,4 +618,4 @@ def _write_table(
     if balance_index:
         _paint_money_font(worksheet.cell(total_row, balance_index), None)
         worksheet.cell(total_row, balance_index).font = _font(11, True, INK)
-    worksheet.row_dimensions[total_row].height = 24
+    worksheet.row_dimensions[total_row].height = 22

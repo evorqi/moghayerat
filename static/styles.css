@@ -67,6 +67,15 @@ h1, h2, h3, p { margin: 0; }
     linear-gradient(180deg, #1b3f46 0%, #12282d 100%);
   color: #f7f4ee;
 }
+.dedication {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 18px 24px 0;
+  color: #f3e6c8;
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.6;
+}
 .top-inner {
   max-width: 1120px;
   margin: 0 auto;
@@ -248,7 +257,17 @@ input:focus, select:focus, button:focus-visible {
   max-height: 280px;
 }
 table { border-collapse: collapse; width: 100%; font-size: 13px; }
-th, td { padding: 8px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; text-align: right; }
+th, td {
+  height: 40px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  text-align: right;
+  line-height: 40px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 240px;
+}
 th { position: sticky; top: 0; background: #17343a; color: white; font-weight: 600; }
 td.num, th.num { direction: ltr; text-align: left; font-variant-numeric: tabular-nums; }
 th.is-mapped, td.is-mapped { background: #e5f4f1; }
