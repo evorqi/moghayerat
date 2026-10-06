@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>سامانه مغایرت‌گیری</title>
+  <link rel="stylesheet" href="/static/styles.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%2317343A'/%3E%3Cpath d='M18 40V24h8.2c4.8 0 7.6 2.4 7.6 6.2 0 2.6-1.4 4.6-3.6 5.5L34 40h-5.2l-3.2-3.8H22.4V40H18zm4.4-7.6h3.4c2.2 0 3.5-1 3.5-2.6s-1.3-2.5-3.5-2.5h-3.4v5.1zM36 40V24h12.8v3.8H40.4v2.7h7.2v3.6h-7.2V36H49V40H36z' fill='%23F3E6C8'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="top">
+    <div class="top-inner">
+      <div class="brand">
+        <span class="mark" aria-hidden="true">مغ</span>
+        <div>
+          <p class="eyebrow">تطبیق هزینه و پرداخت</p>
+          <h1>سامانه مغایرت‌گیری</h1>
+        </div>
+      </div>
+      <p class="brand-note">هر چند فایل لازم است بارگذاری می‌شود. ستون‌ها را خودتان مشخص می‌کنید و یک اکسل مرتب، راست‌به‌چپ و خوانا تحویل می‌گیرید.</p>
+    </div>
+  </header>
+
+  <main>
+    <ol class="steps" id="steps">
+      <li data-step="1" class="is-current"><span>۱</span>بارگذاری فایل‌ها</li>
+      <li data-step="2"><span>۲</span>تعیین نقش و ستون‌ها</li>
+      <li data-step="3"><span>۳</span>دریافت اکسل</li>
+    </ol>
+
+    <div id="error" class="banner" hidden></div>
+
+    <section class="panel upload-panel">
+      <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-label="بارگذاری فایل اکسل یا CSV">
+        <div class="drop-icon" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="42" height="42">
+            <path d="M24 6v22M15 17l9-9 9 9" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M10 30v6a4 4 0 0 0 4 4h20a4 4 0 0 0 4-4v-6" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <h2>فایل‌ها را اینجا رها کنید</h2>
+        <p>یا برای انتخاب کلیک کنید. xlsx، xlsm، xls و csv، به هر تعداد که لازم است.</p>
+        <input id="file-input" type="file" accept=".xlsx,.xlsm,.xls,.csv" multiple hidden>
+      </div>
+      <div class="upload-actions">
+        <button type="button" class="btn ghost" id="demo-btn">امتحان با سه فایل نمونه</button>
+        <p>پردازش روی همین رایانه انجام می‌شود و فایلی به اینترنت فرستاده نمی‌شود.</p>
+      </div>
+    </section>
+
+    <section id="file-list" class="file-list" aria-live="polite"></section>
+
+    <section class="panel options" id="options" hidden>
+      <div>
+        <label for="tolerance">حد اختلاف قابل چشم‌پوشی</label>
+        <div class="inline-field">
+          <input id="tolerance" inputmode="decimal" value="0" autocomplete="off">
+          <span>ریال</span>
+        </div>
+      </div>
+      <p class="hint">اگر اختلاف مانده از این عدد بیشتر نباشد، وضعیت «تسویه‌شده» می‌شود. خودِ مانده در اکسل همچنان دیده می‌شود. واحد همهٔ فایل‌ها باید یکی باشد؛ اگر یکی تومان و دیگری ریال است، ضریب همان فایل را ۱۰ بگذارید.</p>
+    </section>
+
+    <section id="result" class="result" hidden></section>
+
+    <div class="action-bar" id="action-bar" hidden>
+      <p id="action-hint">ستون کد ملی، نام و مبلغ را در هر فهرست بررسی کنید.</p>
+      <button type="button" class="btn primary" id="build-btn">ساخت گزارش و دانلود اکسل</button>
+    </div>
+  </main>
+
+  <footer class="foot">
+    <p>متن فارسی در اکسل برعکس یا شکسته ذخیره نمی‌شود. برگه‌ها راست‌به‌چپ هستند و حروف را خود اکسل می‌چیند.</p>
+  </footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>
